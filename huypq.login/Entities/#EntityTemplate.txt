@@ -1,0 +1,18 @@
+using System.Collections.Generic;
+
+namespace huypq.login.Entities
+{
+    public partial class <EntityName>
+    {
+        public <EntityName>()
+        {
+            <InitEntityCollectionNavigationProperties>
+        }
+
+        <EntityProperties>
+
+        <EntityNavigationProperties>
+		
+		<EntityCollectionNavigationProperties>
+    }
+}

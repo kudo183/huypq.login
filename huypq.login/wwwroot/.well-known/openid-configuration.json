@@ -1,0 +1,33 @@
+{
+  "issuer": "https://sigin.xyz",
+  "jwks_uri": "https://sigin.xyz/.well-known/jwks.json",
+  "authorization_endpoint": "https://sigin.xyz/authorize.html",
+  "token_endpoint": "https://sigin.xyz/token",
+  "userinfo_endpoint": "https://sigin.xyz/userinfo",
+  "scopes_supported": [ "email" ],
+  "response_types_supported": [
+    "code",
+    "id_token",
+    "code id_token"
+  ],
+  "response_modes_supported": [
+    "query",
+    "fragment",
+    "form_post"
+  ],
+  "subject_types_supported": [ "public" ],
+  "id_token_signing_alg_values_supported": [ "RS256" ],
+  "token_endpoint_auth_methods_supported": [
+    "client_secret_basic",
+    "client_secret_post"
+  ],
+  "claims_supported": [
+    "iss",
+    "sub",
+    "aud",
+    "email",
+    "scope",
+    "iat",
+    "exp"
+  ]
+}

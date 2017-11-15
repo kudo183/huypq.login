@@ -1,0 +1,25 @@
+﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata;
+
+namespace huypq.login.Entities
+{
+    public partial class SqlDbContext : DbContext
+    {
+        public SqlDbContext(DbContextOptions<SqlDbContext> options) : base(options)
+        {
+            ChangeTracker.AutoDetectChangesEnabled = false;
+            ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+        }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            <ModelBuilderConfig>
+
+            OnModelCreatingPartial(modelBuilder);
+        }
+
+        partial void OnModelCreatingPartial(ModelBuilder modelBuilder);
+
+        <DbSetProperties>
+    }
+}
