@@ -14,6 +14,9 @@ using System.Text;
 using System.IO;
 using huypq.login.Token;
 using static huypq.login.Token.JwtAccessToken;
+using System.Net;
+using System.Collections.Specialized;
+using huypq.login.Helper;
 
 namespace huypq.login
 {
@@ -502,6 +505,17 @@ namespace huypq.login
             if (parameters.TryGetValue("password", out string password) == false)
             {
                 result.BadRequest("password is required.");
+                return result;
+            }
+            if (parameters.TryGetValue("g-recaptcha-response", out string recaptcha) == false)
+            {
+                result.BadRequest("g-recaptcha-response is required.");
+                return result;
+            }
+
+            if (await ReCaptchaHelper.Verify(recaptcha) == false)
+            {
+                result.BadRequest("invalid captcha.");
                 return result;
             }
 

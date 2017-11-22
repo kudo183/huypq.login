@@ -1,4 +1,5 @@
 ﻿using huypq.Crypto;
+using huypq.login.Helper;
 using System;
 using System.Security.Cryptography;
 using System.Text;
@@ -16,7 +17,7 @@ namespace huypq.login.Token
 
         static JwtTokenHelper()
         {
-            var xml = XDocument.Parse(System.IO.File.ReadAllText(@"c:\keys\rsakey.xml"));
+            var xml = XDocument.Parse(System.IO.File.ReadAllText(KeyFilePath.RsaKey));
             key = new RSAParameters();
             foreach (var item in xml.Elements())
             {
