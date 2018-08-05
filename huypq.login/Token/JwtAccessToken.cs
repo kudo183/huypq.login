@@ -4,7 +4,7 @@ namespace huypq.login.Token
 {
     public class JwtAccessToken
     {
-        static long duration = 31536000;//3600*24*365
+        static long duration = 172800;//3600*24*2
         static string payload = "{{\"iss\":\"{0}\",\"sub\":\"{1}\",\"aud\":\"{2}\",\"email\":\"{3}\",\"scope\":\"{4}\",\"iat\":{5},\"exp\":{6}}}";
 
         public string Iss { get; set; }
@@ -159,6 +159,11 @@ namespace huypq.login.Token
         {
             var iatInTick = (Iat * TimeSpan.TicksPerSecond) + JwtTokenHelper.TicksFromEpoch;
             return iatInTick < tokenValidTimeInTick;
+        }
+
+        public bool IsExpired()
+        {
+            return Exp < (DateTime.UtcNow.Ticks - JwtTokenHelper.TicksFromEpoch) / TimeSpan.TicksPerSecond;
         }
     }
 }

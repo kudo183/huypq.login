@@ -63,13 +63,8 @@ namespace huypq.login
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IHostingEnvironment env)
         {
-            if (env.IsDevelopment())
-            {
-                app.UseDeveloperExceptionPage();
-                app.UseDefaultFiles();
-                app.UseStaticFiles();
-            }
-
+            app.UseDefaultFiles();
+            app.UseStaticFiles();
             app.UseCors(builder => builder.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
 
             InternalToken.ServiceProvider = app.ApplicationServices;
@@ -346,59 +341,92 @@ namespace huypq.login
         private async Task<Result> Token(SqlDbContext dbContext, Dictionary<string, string> parameters)
         {
             var result = new Result();
-
+            User user;
             if (parameters.TryGetValue("grant_type", out string grant_type) == false)
             {
-                result.BadRequest("grant_type is required.");
+                result.BadRequest(TokenError("invalid_request", "grant_type is required."));
+                return result;
+            }
+
+            if (grant_type == "refresh_token")
+            {
+                if (parameters.TryGetValue("refresh_token", out string refresh_token) == false)
+                {
+                    result.BadRequest(TokenError("invalid_request", "refresh_token is required when grant_type is refresh_token."));
+                    return result;
+                }
+                JwtAccessToken refresh_token_obj = new JwtAccessToken();
+                if (refresh_token_obj.FromJwtString(refresh_token) == false)
+                {
+                    result.BadRequest(TokenError("invalid_grant", "refresh_token is invalid."));
+                    return result;
+                }
+
+                user = await dbContext.User.FirstOrDefaultAsync(p => p.Email == refresh_token_obj.Email);
+
+                if (refresh_token_obj.IsRevoked(user.TokenValidTime))
+                {
+                    result.BadRequest(TokenError("invalid_grant", "refresh_token is revoked."));
+                    return result;
+                }
+
+                if (refresh_token_obj.IsExpired() == true)
+                {
+                    result.BadRequest(TokenError("invalid_grant", "refresh_token is expired."));
+                    return result;
+                }
+                refresh_token_obj.Iat = (DateTime.UtcNow.Ticks - JwtTokenHelper.TicksFromEpoch) / TimeSpan.TicksPerSecond;
+                refresh_token_obj.Exp = refresh_token_obj.Iat + 172800;//3600*24*2
+                result.ResponseText = string.Format("{{\"access_token\":\"{0}\",\"token_type\":\"Bearer\"}}", refresh_token_obj.ToJwtString());
+                
                 return result;
             }
 
             if (grant_type != "authorization_code")
             {
-                result.BadRequest("grant_type Value MUST be set to \"authorization_code\".");
+                result.BadRequest(TokenError("unsupported_grant_type", "grant_type Value MUST be set to \"authorization_code\" or \"refresh_token\"."));
                 return result;
             }
 
             if (parameters.TryGetValue("code", out string code) == false)
             {
-                result.BadRequest("code is required.");
+                result.BadRequest(TokenError("invalid_request", "code is required."));
                 return result;
             }
 
             if (parameters.TryGetValue("redirect_uri", out string redirect_uri) == false)
             {
-                result.BadRequest("redirect_uri is required.");
+                result.BadRequest(TokenError("invalid_request", "redirect_uri is required."));
                 return result;
             }
 
             if (parameters.TryGetValue("client_id", out string client_id) == false)
             {
-                result.BadRequest("client_id is required.");
+                result.BadRequest(TokenError("invalid_request", "client_id is required."));
                 return result;
             }
 
             var token = InternalToken.VerifyTokenString(code, "authorize_code");
             if (token == null)
             {
-                result.BadRequest("Invalid code.");
-                return result;
+                result.BadRequest(TokenError("invalid_grant", "Invalid code."));
             }
 
             if (token.IsExpired() == true)
             {
-                result.BadRequest("code is expired.");
+                result.BadRequest(TokenError("invalid_grant", "code is expired."));
                 return result;
             }
 
             var customData = Helper.ListStringHelper.FromByteArray(token.CustomData);
             if (client_id != customData[1])
             {
-                result.BadRequest("client_id is not match code client_id.");
+                result.BadRequest(TokenError("invalid_grant", "client_id is not match code client_id."));
                 return result;
             }
             if (redirect_uri != customData[2])
             {
-                result.BadRequest("client_id is not match code redirect_uri.");
+                result.BadRequest(TokenError("invalid_grant", "redirect_uri is not match code redirect_uri."));
                 return result;
             }
             var nonce = customData[3];
@@ -408,13 +436,13 @@ namespace huypq.login
             {
                 if (parameters.TryGetValue("code_verifier", out string code_verifier) == false)
                 {
-                    result.BadRequest("code_verifier is required.");
+                    result.BadRequest(TokenError("invalid_grant", "code_verifier is required."));
                     return result;
                 }
 
                 if (SHA256Utils.ComputeBase64UrlEncodeHash(code_verifier) != code_challenge)
                 {
-                    result.BadRequest("Invalid code_verifier.");
+                    result.BadRequest(TokenError("invalid_grant", "Invalid code_verifier."));
                     return result;
                 }
             }
@@ -423,19 +451,19 @@ namespace huypq.login
 
             if (entry == null)
             {
-                result.BadRequest("code is already used.");
+                result.BadRequest(TokenError("invalid_grant", "code is already used."));
                 return result;
             }
 
-            var user = await dbContext.User.FirstOrDefaultAsync(p => p.Email == token.Email);
+            user = await dbContext.User.FirstOrDefaultAsync(p => p.Email == token.Email);
 
             if (token.CreateTime.Ticks < user.TokenValidTime)
             {
-                result.BadRequest("code is revoked.");
+                result.BadRequest(TokenError("invalid_grant", "code is revoked."));
                 return result;
             }
 
-            string accessToken = string.Empty;
+            JwtAccessToken accessToken = null;
             string idToken = new JwtIDToken()
             {
                 Sub = user.ID.ToString(),
@@ -448,34 +476,35 @@ namespace huypq.login
             var app = await dbContext.Application.FirstOrDefaultAsync(p => p.ID == appID);
             if (app == null)
             {
-                accessToken = new JwtAccessToken()
-                {
-                    Sub = user.ID.ToString(),
-                    Aud = client_id,
-                    Email = token.Email,
-                    Scope = ""
-                }.ToJwtString();
+                result.BadRequest(TokenError("invalid_grant", "client_id not exit."));
+                return result;
             }
-            else
+
+            var userScopes = await dbContext.UserScope.Where(p => p.UserID == user.ID).Select(p => p.ScopeID).ToListAsync();
+            var sb = new StringBuilder();
+            if (userScopes != null)
             {
-                var userScopes = await dbContext.UserScope.Where(p => p.UserID == user.ID).Select(p => p.ScopeID).ToListAsync();
                 var scopes = await dbContext.Scope.Where(p => p.ApplicationID == app.ID && userScopes.Contains(p.ID)).ToListAsync();
 
-                var sb = new StringBuilder();
                 foreach (var scope in scopes)
                 {
                     sb.AppendFormat("{0} ", scope.ScopeName);
                 }
-
-                accessToken = new JwtAccessToken()
-                {
-                    Sub = user.ID.ToString(),
-                    Aud = client_id,
-                    Email = token.Email,
-                    Scope = (sb.Length > 1) ? sb.ToString(0, sb.Length - 1) : ""
-                }.ToJwtString();
             }
-            result.ResponseText = string.Format("{{\"access_token\":\"{0}\",\"id_token\":\"{1}\",\"token_type\":\"bearer\"}}", accessToken, idToken);
+
+            accessToken = new JwtAccessToken()
+            {
+                Sub = user.ID.ToString(),
+                Aud = client_id,
+                Email = token.Email,
+                Scope = (sb.Length > 1) ? sb.ToString(0, sb.Length - 1) : ""
+            };
+
+            string access_token_string = accessToken.ToJwtString();
+            accessToken.Exp = accessToken.Iat + 157680000;//3600*24*365*5;
+            string refresh_token_string = accessToken.ToJwtString();
+            result.ResponseText = string.Format("{{\"access_token\":\"{0}\",\"token_type\":\"Bearer\",\"refresh_token\":\"{1}\",\"id_token\":\"{2}\"}}", access_token_string, refresh_token_string, idToken);
+            
             return result;
         }
 
@@ -732,6 +761,11 @@ namespace huypq.login
                     return result;
                 }
 
+                if (accessToken.IsExpired() == true)
+                {
+                    result.BadRequest("token is expired.");
+                    return result;
+                }
             }
 
             result.ResponseText = "Invalid token_type";
@@ -797,6 +831,15 @@ namespace huypq.login
             var content = sb.ToString();
 
             File.WriteAllText(Path.Combine(EmailFolderPath, string.Format("{0}.txt", DateTime.UtcNow.Ticks)), content);
+        }
+
+        private string TokenError(string error, string error_description)
+        {
+            return string.Format("{{\"error\":\"{0}\",\"error_description\":\"{1}\"}}", error, error_description);
+
+            //var result = string.Format("{{\"error\":\"{0}\",\"error_description\":\"{1}\"}}", error, error_description);
+            //System.IO.File.WriteAllText(@"c:\test.log", result);
+            //return result;
         }
 
         private SqlDbContext GetDbContext(HttpContext context)
